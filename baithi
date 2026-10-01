@@ -1,0 +1,291 @@
+"""
+BAI TOAN NGUOI NONG DAN - SOI - DE - BAP CAI (Farmer - Wolf - Goat - Cabbage)
+Giai bang thuat toan BFS (Breadth-First Search) va A* (A-Star)
+
+Bieu dien trang thai: tuple (F, W, G, C)
+    F = vi tri Nguoi nong dan (Farmer)
+    W = vi tri Con soi (Wolf)
+    G = vi tri Con de (Goat)
+    C = vi tri Bap cai (Cabbage)
+    0 = bo Trai, 1 = bo Phai
+
+Trang thai bat dau : (0, 0, 0, 0)
+Trang thai dich    : (1, 1, 1, 1)
+
+Rang buoc an toan (khi khong co nguoi o cung bo):
+    - Soi va De khong duoc o chung mot bo neu khong co Nguoi   -> Soi an De
+    - De va Bap cai khong duoc o chung mot bo neu khong co Nguoi -> De an Bap cai
+"""
+
+import time
+import heapq
+from collections import deque
+
+START = (0, 0, 0, 0)
+GOAL = (1, 1, 1, 1)
+
+NAMES = ["Nguoi", "Soi", "De", "Bap cai"]
+ITEM_NAMES = ["Soi", "De", "Bap cai"]  # cac vat co the mang theo (khong tinh nguoi)
+
+
+def is_valid(state):
+    """Kiem tra trang thai co an toan hay khong."""
+    f, w, g, c = state
+    if w == g and f != w:          # Soi + De cung bo, khong co Nguoi
+        return False
+    if g == c and f != g:          # De + Bap cai cung bo, khong co Nguoi
+        return False
+    return True
+
+
+def get_successors(state):
+    """
+    Sinh tat ca trang thai ke tiep hop le tu 'state'.
+    Nguoi luon phai qua song; co the di mot minh hoac cho theo DUY NHAT 1 trong 3 vat
+    (dieu kien: vat do phai dang cung bo voi Nguoi truoc khi qua).
+    Tra ve list cac tuple (trang_thai_moi, mo_ta_hanh_dong)
+    """
+    f, w, g, c = state
+    successors = []
+    items = [("Sói", w), ("Dê", g), ("Bắp cải", c)]
+
+    # 1) Nguoi di mot minh
+    candidates = [(list(state), "Người qua sông một mình")]
+
+    # 2) Nguoi cho theo 1 vat dang o cung ben voi minh
+    for idx, (name, pos) in enumerate(items):
+        if pos == f:
+            new_state = list(state)
+            new_state[0] = 1 - f          # Nguoi doi ben
+            new_state[idx + 1] = 1 - pos  # Vat duoc mang theo cung doi ben
+            candidates.append((new_state, f"Người chở {name} qua sông"))
+
+    # Rieng truong hop "Nguoi di mot minh" can cap nhat lai vi tri Nguoi
+    fixed_candidates = []
+    for new_state, desc in candidates:
+        if desc == "Người qua sông một mình":
+            new_state[0] = 1 - f
+        fixed_candidates.append((tuple(new_state), desc))
+
+    for new_state, desc in fixed_candidates:
+        if is_valid(new_state):
+            successors.append((new_state, desc))
+
+    return successors
+
+
+def side(pos):
+    return "Phải" if pos == 1 else "Trái"
+
+
+def print_state(state):
+    f, w, g, c = state
+    return f"(Người:{side(f)}, Sói:{side(w)}, Dê:{side(g)}, BắpCải:{side(c)})"
+
+
+# =========================================================
+# 1. THUAT TOAN BFS
+# =========================================================
+def bfs(start=START, goal=GOAL, verbose_order=None):
+    """
+    Tim kiem theo chieu rong.
+    Tra ve: duong di (list [(state, action), ...]), so nut sinh ra, so nut duyet (expand),
+             do sau loi giai, thoi gian chay
+    """
+    t0 = time.perf_counter()
+    frontier = deque([start])
+    came_from = {start: (None, None)}   # state -> (parent_state, action)
+    visited = {start}
+
+    nodes_generated = 1
+    nodes_expanded = 0
+    order = []  # thu tu duyet nut, dung de minh hoa
+
+    if not is_valid(start):
+        raise ValueError("Trang thai bat dau khong hop le!")
+
+    while frontier:
+        current = frontier.popleft()
+        nodes_expanded += 1
+        order.append(current)
+
+        if current == goal:
+            break
+
+        for next_state, action in get_successors(current):
+            if next_state not in visited:
+                visited.add(next_state)
+                came_from[next_state] = (current, action)
+                frontier.append(next_state)
+                nodes_generated += 1
+
+    t1 = time.perf_counter()
+
+    if goal not in came_from:
+        return None, nodes_generated, nodes_expanded, None, t1 - t0, order
+
+    # Truy vet duong di
+    path = []
+    node = goal
+    while node is not None:
+        parent, action = came_from[node]
+        path.append((node, action))
+        node = parent
+    path.reverse()
+
+    return path, nodes_generated, nodes_expanded, len(path) - 1, t1 - t0, order
+
+
+# =========================================================
+# 2. HAM HEURISTIC CHO A*
+# =========================================================
+def heuristic(state, goal=GOAL):
+    """
+    h(n) = so 'vat' (Soi, De, Bap cai) CHUA o cung ben voi dich.
+    Day la heuristic CHAP NHAN DUOC (admissible):
+    moi luot qua song chi dua duoc toi da 1 vat di kem Nguoi,
+    nen so luot qua song con thieu it nhat phai >= so vat con lai chua sang bo dich.
+    => h(n) khong bao gio vuot qua chi phi thuc te con lai g*(n, goal).
+    """
+    f, w, g, c = state
+    gf, gw, gg, gc = goal
+    count = 0
+    if w != gw:
+        count += 1
+    if g != gg:
+        count += 1
+    if c != gc:
+        count += 1
+    return count
+
+
+# =========================================================
+# 3. THUAT TOAN A*
+# =========================================================
+def a_star(start=START, goal=GOAL):
+    """
+    A* voi f(n) = g(n) + h(n)
+    g(n): so buoc da di tu start den n
+    h(n): heuristic() ben tren
+    Tra ve tuong tu bfs()
+    """
+    t0 = time.perf_counter()
+
+    counter = 0  # de phan biet cac phan tu co cung f trong heap (tie-breaker)
+    open_heap = [(heuristic(start, goal), 0, counter, start)]
+    came_from = {start: (None, None)}
+    g_score = {start: 0}
+    closed = set()
+
+    nodes_generated = 1
+    nodes_expanded = 0
+    order = []
+
+    if not is_valid(start):
+        raise ValueError("Trang thai bat dau khong hop le!")
+
+    while open_heap:
+        f_val, g_val, _, current = heapq.heappop(open_heap)
+
+        if current in closed:
+            continue
+        closed.add(current)
+        nodes_expanded += 1
+        order.append(current)
+
+        if current == goal:
+            break
+
+        for next_state, action in get_successors(current):
+            tentative_g = g_val + 1
+            if next_state in closed and tentative_g >= g_score.get(next_state, float("inf")):
+                continue
+            if tentative_g < g_score.get(next_state, float("inf")):
+                g_score[next_state] = tentative_g
+                came_from[next_state] = (current, action)
+                counter += 1
+                f_new = tentative_g + heuristic(next_state, goal)
+                heapq.heappush(open_heap, (f_new, tentative_g, counter, next_state))
+                nodes_generated += 1
+
+    t1 = time.perf_counter()
+
+    if goal not in came_from:
+        return None, nodes_generated, nodes_expanded, None, t1 - t0, order
+
+    path = []
+    node = goal
+    while node is not None:
+        parent, action = came_from[node]
+        path.append((node, action))
+        node = parent
+    path.reverse()
+
+    return path, nodes_generated, nodes_expanded, len(path) - 1, t1 - t0, order
+
+
+# =========================================================
+# 4. IN KET QUA
+# =========================================================
+def print_path(path):
+    print(f"{'Buoc':<6}{'Hanh dong':<28}{'Trang thai (F, W, G, C)'}")
+    print("-" * 70)
+    for i, (state, action) in enumerate(path):
+        act = action if action else "(Trang thai bat dau)"
+        print(f"{i:<6}{act:<28}{print_state(state)}")
+
+
+def run_case(name, start, goal=GOAL):
+    print("\n" + "=" * 70)
+    print(f"TRUONG HOP: {name}")
+    print(f"Trang thai dau : {print_state(start)}")
+    print(f"Trang thai dich: {print_state(goal)}")
+    print("=" * 70)
+
+    if not is_valid(start):
+        print("\n>>> LOI: Trang thai dau vao KHONG HOP LE (vi pham rang buoc an toan).")
+        print(">>> Chuong trinh tu dong tu choi xu ly va bao loi cho nguoi dung.")
+        return None
+
+    print("\n--- KET QUA BFS ---")
+    path, gen, exp, depth, t, order = bfs(start, goal)
+    if path is None:
+        print("Khong tim thay loi giai!")
+    else:
+        print_path(path)
+        print(f"\nSo buoc (do sau loi giai) : {depth}")
+        print(f"So nut sinh ra (generated): {gen}")
+        print(f"So nut duyet (expanded)   : {exp}")
+        print(f"Thoi gian chay            : {t*1000:.4f} ms")
+
+    print("\n--- KET QUA A* ---")
+    path2, gen2, exp2, depth2, t2, order2 = a_star(start, goal)
+    if path2 is None:
+        print("Khong tim thay loi giai!")
+    else:
+        print_path(path2)
+        print(f"\nSo buoc (do sau loi giai) : {depth2}")
+        print(f"So nut sinh ra (generated): {gen2}")
+        print(f"So nut duyet (expanded)   : {exp2}")
+        print(f"Thoi gian chay            : {t2*1000:.6f} ms")
+
+    return {
+        "bfs": (path, gen, exp, depth, t),
+        "astar": (path2, gen2, exp2, depth2, t2),
+    }
+
+
+if __name__ == "__main__":
+    # ----- Mau du lieu 1: Bai toan kinh dien -----
+    run_case("Mau 1 - Bai toan kinh dien (xuat phat tat ca o bo Trai)",
+              start=(0, 0, 0, 0), goal=(1, 1, 1, 1))
+
+    # ----- Mau du lieu 2: Xuat phat tu mot trang thai trung gian hop le -----
+    # Nguoi o bo Phai, De da o bo Phai; Soi va Bap cai con o bo Trai
+    run_case("Mau 2 - Xuat phat tu trang thai trung gian",
+              start=(1, 0, 1, 0), goal=(1, 1, 1, 1))
+
+    # ----- Mau du lieu 3: Trang thai dau vao KHONG HOP LE (kiem thu bien) -----
+    # Soi va De cung o bo Trai (0), nhung Nguoi lai o bo Phai (1) -> vi pham an toan
+    run_case("Mau 3 - Kiem thu du lieu dau vao khong hop le",
+              start=(1, 0, 0, 1), goal=(1, 1, 1, 1))
